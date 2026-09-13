@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>電磁場中の荷電粒子の運動シミュレーション</title>
+    <!-- 3Dグラフ描画用のライブラリ Plotly.js を読み込み -->
+    <script src="https://cdn.plot.ly/plotly-2.24.1.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f7f6; color: #333;}
+        h1 { font-size: 24px; text-align: center; }
+        .container { display: flex; flex-wrap: wrap; gap: 20px; max-width: 100%; }
+
+        /* 左側の設定パネル */
+        .sidebar { flex: 1; min-width: 300px; max-width: 350px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+
+        /* 右側のグラフ領域 */
+        .main { flex: 4; min-width: 700px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+
+        .input-group { margin-bottom: 8px; display: flex; align-items: center; }
+        .input-group label { display: inline-block; width: 40px; text-align: right; margin-right: 5px; font-size: 14px;}
+        .input-group.range-group label { width: 30px; }
+        .input-group span { display: inline-block; width: 140px; font-size: 14px;}
+        .input-group input { width: 70px; padding: 4px; border: 1px solid #ccc; border-radius: 4px; }
+        .input-group select { width: 150px; padding: 4px; border: 1px solid #ccc; border-radius: 4px; }
+        .range-input { width: 60px !important; margin: 0 5px; }
+        .section-title { font-weight: bold; margin-top: 20px; margin-bottom: 10px; border-bottom: 2px solid #007bff; padding-bottom: 4px; color: #007bff; }
+        .hint { font-size: 12px; color: #777; margin: -4px 0 8px 0; }
+        button { padding: 12px 20px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; margin-top: 25px; font-weight: bold;}
+        button:hover { background-color: #0056b3; }
+
+        /* グラフの高さ */
+        #plot { width: 100%; height: 90vh; min-height: 800px; }
+    </style>
+</head>
+<body>
+
+<h1>電磁場中の荷電粒子の運動 (3D シミュレーション)</h1>
+
+<div class="container">
+    <!-- 左側の設定パネル -->
+    <div class="sidebar">
+        <div class="section-title">粒子パラメータ</div>
+        <div class="input-group"><span>質量 m (kg):</span><input type="number" id="mass" value="1.0" step="any"></div>
+        <div class="input-group"><span>電気量 q (C):</span><input type="number" id="charge" value="1.0" step="any"></div>
+
+        <div class="section-title">初期位置 (m)</div>
+        <div class="input-group">
+            <label>x:</label><input type="number" id="x0" value="0" step="any">
+            <label>y:</label><input type="number" id="y0" value="0" step="any">
+            <label>z:</label><input type="number" id="z0" value="0" step="any">
+        </div>
+
+        <div class="section-title">初期速度 (m/s)</div>
+        <div class="input-group">
+            <label>vx:</label><input type="number" id="vx0" value="0" step="any">
+            <label>vy:</label><input type="number" id="vy0" value="0" step="any">
+            <label>vz:</label><input type="number" id="vz0" value="0" step="any">
+        </div>
+
+        <div class="section-title">一様電場 E (N/C または V/m)</div>
+        <div class="input-group">
+            <label>Ex:</label><input type="number" id="Ex" value="0" step="any">
+            <label>Ey:</label><input type="number" id="Ey" value="1.0" step="any">
+            <label>Ez:</label><input type="number" id="Ez" value="0" step="any">
+        </div>
+
+        <div class="section-title">一様磁場 B (T)</div>
+        <div class="input-group">
+            <label>Bx:</label><input type="number" id="Bx" value="0" step="any">
+            <label>By:</label><input type="number" id="By" value="0" step="any">
+            <label>Bz:</label><input type="number" id="Bz" value="1.0" step="any">
+        </div>
+
+        <div class="section-title">表示設定</div>
+
+        <div class="input-group">
+            <span style="width:110px;">表示フレーム:</span>
+            <select id="frameMode">
+                <option value="lab" selected>実験室系（そのまま表示）</option>
+                <option value="drift">ドリフト追従系（平均ドリフト成分を除去）</option>
+            </select>
+        </div>
+        <div class="hint">「ドリフト追従系」は始点・終点を結ぶ平均速度を軌道全体から差し引いて、ドリフトに重畳した動きを見やすくします。</div>
+
+        <div class="input-group">
+            <span style="width:110px;">空間の表示比率:</span>
+            <select id="aspectMode">
+                <option value="data_capped" selected>実スケール風（間延び抑制）</option>
+                <option value="data">1:1:1（厳密な実スケール）</option>
+                <option value="auto">枠に合わせる（自動）</option>
+            </select>
+        </div>
+        <div class="hint">「実スケール風」は軸間の比率の下限を設け、極端な間延びを防ぎます。</div>
+
+        <div class="section-title">グラフ表示範囲 (空欄で自動)</div>
+        <div class="input-group range-group">
+            <label>X軸:</label>
+            <input type="number" id="xMin" class="range-input" placeholder="最小" step="any"> ～
+            <input type="number" id="xMax" class="range-input" placeholder="最大" step="any">
+        </div>
+        <div class="input-group range-group">
+            <label>Y軸:</label>
+            <input type="number" id="yMin" class="range-input" placeholder="最小" step="any"> ～
+            <input type="number" id="yMax" class="range-input" placeholder="最大" step="any">
+        </div>
+        <div class="input-group range-group">
+            <label>Z軸:</label>
+            <input type="number" id="zMin" class="range-input" placeholder="最小" step="any"> ～
+            <input type="number" id="zMax" class="range-input" placeholder="最大" step="any">
+        </div>
+
+        <div class="section-title">シミュレーション設定</div>
+        <div class="input-group"><span>時間刻み Δt (s):</span><input type="number" id="dt" value="0.05" step="any"></div>
+        <div class="input-group"><span>計算ステップ数:</span><input type="number" id="steps" value="1000" step="any"></div>
+
+        <div class="section-title">アニメーション設定</div>
+        <div class="input-group"><span>1フレーム間隔 (ms):</span><input type="number" id="frameDuration" value="30" step="1"></div>
+
+        <!-- 修正: ボタン押下時にのみ autoPlay = true を渡す -->
+        <button onclick="runSimulation(true)">シミュレーション実行</button>
+    </div>
+
+    <!-- 右側のグラフ表示領域 -->
+    <div class="main">
+        <div id="plot"></div>
+    </div>
+</div>
+
+<script>
+// --- 3Dベクトル演算ユーティリティ ---
+function crossProduct(v1, v2) {
+    return [
+        v1[1]*v2[2] - v1[2]*v2[1],
+        v1[2]*v2[0] - v1[0]*v2[2],
+        v1[0]*v2[1] - v1[1]*v2[0]
+    ];
+}
+function add(v1, v2) { return [v1[0]+v2[0], v1[1]+v2[1], v1[2]+v2[2]]; }
+function scale(v, s) { return [v[0]*s, v[1]*s, v[2]*s]; }
+function norm(v) { return Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]); }
+
+function getAcceleration(v, E, B, q, m) {
+    let v_cross_B = crossProduct(v, B);
+    let force = scale(add(E, v_cross_B), q);
+    return scale(force, 1/m);
+}
+
+function getTickStep(max_val) {
+    if(max_val === 0) return 1;
+    let p = Math.pow(10, Math.floor(Math.log10(max_val)));
+    let f = max_val / p;
+    if (f <= 2) return p / 5;
+    if (f <= 5) return p / 2;
+    return p;
+}
+
+// シミュレーションメイン処理 (autoPlayフラグを追加)
+function runSimulation(autoPlay = false) {
+    try {
+        let m = parseFloat(document.getElementById('mass').value) || 1.0;
+        let q = parseFloat(document.getElementById('charge').value) || 1.0;
+
+        let r = [
+            parseFloat(document.getElementById('x0').value) || 0,
+            parseFloat(document.getElementById('y0').value) || 0,
+            parseFloat(document.getElementById('z0').value) || 0
+        ];
+        let v = [
+            parseFloat(document.getElementById('vx0').value) || 0,
+            parseFloat(document.getElementById('vy0').value) || 0,
+            parseFloat(document.getElementById('vz0').value) || 0
+        ];
+        let E = [
+            parseFloat(document.getElementById('Ex').value) || 0,
+            parseFloat(document.getElementById('Ey').value) || 0,
+            parseFloat(document.getElementById('Ez').value) || 0
+        ];
+        let B = [
+            parseFloat(document.getElementById('Bx').value) || 0,
+            parseFloat(document.getElementById('By').value) || 0,
+            parseFloat(document.getElementById('Bz').value) || 0
+        ];
+        let dt = parseFloat(document.getElementById('dt').value) || 0.05;
+        let steps = parseInt(document.getElementById('steps').value) || 1000;
+
+        let x_vals = [r[0]], y_vals = [r[1]], z_vals = [r[2]];
+
+        for (let i = 0; i < steps; i++) {
+            let k1_v = getAcceleration(v, E, B, q, m);
+            let k2_v = getAcceleration(add(v, scale(k1_v, dt/2)), E, B, q, m);
+            let k3_v = getAcceleration(add(v, scale(k2_v, dt/2)), E, B, q, m);
+            let k4_v = getAcceleration(add(v, scale(k3_v, dt)), E, B, q, m);
+
+            let dv = scale(add(k1_v, add(scale(k2_v, 2), add(scale(k3_v, 2), k4_v))), dt/6);
+            let next_v = add(v, dv);
+
+            let dr = scale(add(v, next_v), dt/2);
+            r = add(r, dr);
+            v = next_v;
+
+            x_vals.push(r[0]); y_vals.push(r[1]); z_vals.push(r[2]);
+        }
+
+        let frameMode = document.getElementById('frameMode').value;
+        let x_disp = x_vals, y_disp = y_vals, z_disp = z_vals;
+
+        if (frameMode === 'drift') {
+            let T = steps * dt;
+            if (T > 0) {
+                let vAvg = [
+                    (x_vals[x_vals.length - 1] - x_vals[0]) / T,
+                    (y_vals[y_vals.length - 1] - y_vals[0]) / T,
+                    (z_vals[z_vals.length - 1] - z_vals[0]) / T
+                ];
+                x_disp = x_vals.map((val, i) => val - vAvg[0] * i * dt);
+                y_disp = y_vals.map((val, i) => val - vAvg[1] * i * dt);
+                z_disp = z_vals.map((val, i) => val - vAvg[2] * i * dt);
+            }
+        }
+
+        let max_abs = Math.max(
+            Math.abs(Math.min(...x_disp)), Math.abs(Math.max(...x_disp)),
+            Math.abs(Math.min(...y_disp)), Math.abs(Math.max(...y_disp)),
+            Math.abs(Math.min(...z_disp)), Math.abs(Math.max(...z_disp)),
+            1
+        );
+        let auto_limit = max_abs * 1.1;
+
+        let xMinIn = document.getElementById('xMin').value;
+        let xMaxIn = document.getElementById('xMax').value;
+        let yMinIn = document.getElementById('yMin').value;
+        let yMaxIn = document.getElementById('yMax').value;
+        let zMinIn = document.getElementById('zMin').value;
+        let zMaxIn = document.getElementById('zMax').value;
+
+        let view_x_min = (xMinIn !== "") ? parseFloat(xMinIn) : -auto_limit;
+        let view_x_max = (xMaxIn !== "") ? parseFloat(xMaxIn) : auto_limit;
+        let view_y_min = (yMinIn !== "") ? parseFloat(yMinIn) : -auto_limit;
+        let view_y_max = (yMaxIn !== "") ? parseFloat(yMaxIn) : auto_limit;
+        let view_z_min = (zMinIn !== "") ? parseFloat(zMinIn) : -auto_limit;
+        let view_z_max = (zMaxIn !== "") ? parseFloat(zMaxIn) : auto_limit;
+
+        let cross_x = (view_x_min <= 0 && view_x_max >= 0) ? 0 : (view_x_min + view_x_max) / 2;
+        let cross_y = (view_y_min <= 0 && view_y_max >= 0) ? 0 : (view_y_min + view_y_max) / 2;
+        let cross_z = (view_z_min <= 0 && view_z_max >= 0) ? 0 : (view_z_min + view_z_max) / 2;
+
+        let span_x = view_x_max - view_x_min || 1;
+        let span_y = view_y_max - view_y_min || 1;
+        let span_z = view_z_max - view_z_min || 1;
+        let max_span = Math.max(span_x, span_y, span_z) || 1;
+
+        // --- 空間の表示比率を決定 ---
+        let aspectMode = document.getElementById('aspectMode').value;
+        let aspectmode_val = 'manual';
+        let aspectratio_val;
+
+        if (aspectMode === 'auto') {
+            aspectratio_val = { x: 1.6, y: 1.6, z: 1.0 };
+        } else if (aspectMode === 'data_capped') {
+            const MIN_RATIO = 0.35;
+            const SCALE = 1.8;
+            let rx = Math.max(span_x / max_span, MIN_RATIO);
+            let ry = Math.max(span_y / max_span, MIN_RATIO);
+            let rz = Math.max(span_z / max_span, MIN_RATIO);
+            aspectratio_val = { x: rx * SCALE, y: ry * SCALE, z: rz * SCALE };
+        } else {
+            aspectmode_val = 'data';
+            aspectratio_val = { x: 1, y: 1, z: 1 };
+        }
+
+        let effAspect = (aspectmode_val === 'data')
+            ? [span_x, span_y, span_z]
+            : [aspectratio_val.x, aspectratio_val.y, aspectratio_val.z];
+        let maxEff = Math.max(effAspect[0], effAspect[1], effAspect[2]) || 1;
+        let visual_scale_x = (effAspect[0] / maxEff) / span_x;
+        let visual_scale_y = (effAspect[1] / maxEff) / span_y;
+        let visual_scale_z = (effAspect[2] / maxEff) / span_z;
+
+        let step_x = getTickStep(Math.max(Math.abs(view_x_min), Math.abs(view_x_max)));
+        let step_y = getTickStep(Math.max(Math.abs(view_y_min), Math.abs(view_y_max)));
+        let step_z = getTickStep(Math.max(Math.abs(view_z_min), Math.abs(view_z_max)));
+
+        let tick_size_x_on_y = span_y * 0.015;
+        let tick_size_y_on_x = span_x * 0.015;
+        let tick_size_z_on_x = span_x * 0.015;
+
+        function generateTicks(min, max, step) {
+            let ticks = [];
+            let start = Math.ceil(min / step) * step;
+            for (let val = start; val <= max + 1e-9; val += step) {
+                ticks.push(val);
+            }
+            return ticks;
+        }
+
+        let ticks_x = generateTicks(view_x_min, view_x_max, step_x);
+        let ticks_y = generateTicks(view_y_min, view_y_max, step_y);
+        let ticks_z = generateTicks(view_z_min, view_z_max, step_z);
+
+        let t_lines_x = [], t_lines_y = [], t_lines_z = [];
+        let t_pos_x = [], t_pos_y = [], t_pos_z = [];
+        let t_text_x = [], t_text_y = [], t_text_z = [];
+
+        ticks_x.forEach(val => {
+            t_lines_x.push(val, val, null);
+            t_lines_y.push(cross_y - tick_size_x_on_y, cross_y + tick_size_x_on_y, null);
+            t_lines_z.push(cross_z, cross_z, null);
+            t_pos_x.push(val); t_text_x.push(parseFloat(val.toPrecision(4)).toString());
+        });
+
+        ticks_y.forEach(val => {
+            t_lines_x.push(cross_x - tick_size_y_on_x, cross_x + tick_size_y_on_x, null);
+            t_lines_y.push(val, val, null);
+            t_lines_z.push(cross_z, cross_z, null);
+            t_pos_y.push(val); t_text_y.push(parseFloat(val.toPrecision(4)).toString());
+        });
+
+        ticks_z.forEach(val => {
+            t_lines_x.push(cross_x - tick_size_z_on_x, cross_x + tick_size_z_on_x, null);
+            t_lines_y.push(cross_y, cross_y, null);
+            t_lines_z.push(val, val, null);
+            t_pos_z.push(val); t_text_z.push(parseFloat(val.toPrecision(4)).toString());
+        });
+
+        // 矢印生成関数
+        function getArrowTrace(origin_data, dir_data, vis_length, head_len_vis, head_wid_vis, color, width, name) {
+            if (!visual_scale_x || !visual_scale_y || !visual_scale_z) return null;
+            let v_orig = [origin_data[0]*visual_scale_x, origin_data[1]*visual_scale_y, origin_data[2]*visual_scale_z];
+            let v_dir_raw = [dir_data[0]*visual_scale_x, dir_data[1]*visual_scale_y, dir_data[2]*visual_scale_z];
+            
+            let v_mag_raw = norm(v_dir_raw);
+            if (v_mag_raw < 1e-12) return null;
+            let v_unit = scale(v_dir_raw, 1/v_mag_raw);
+
+            let v_end = add(v_orig, scale(v_unit, vis_length));
+
+            let perp1 = [-v_unit[1], v_unit[0], 0];
+            if (norm(perp1) < 0.1) perp1 = [0, -v_unit[2], v_unit[1]];
+            perp1 = scale(perp1, 1/norm(perp1));
+            
+            let perp2 = crossProduct(v_unit, perp1);
+            perp2 = scale(perp2, 1/norm(perp2));
+
+            let w1 = add(add(v_end, scale(v_unit, -head_len_vis)), scale(perp1, head_wid_vis));
+            let w2 = add(add(v_end, scale(v_unit, -head_len_vis)), scale(perp1, -head_wid_vis));
+            let w3 = add(add(v_end, scale(v_unit, -head_len_vis)), scale(perp2, head_wid_vis));
+            let w4 = add(add(v_end, scale(v_unit, -head_len_vis)), scale(perp2, -head_wid_vis));
+
+            function toData(v) { return [v[0]/visual_scale_x, v[1]/visual_scale_y, v[2]/visual_scale_z]; }
+            let d_orig = toData(v_orig), d_end = toData(v_end);
+            let d_w1 = toData(w1), d_w2 = toData(w2), d_w3 = toData(w3), d_w4 = toData(w4);
+
+            return {
+                trace: {
+                    x: [d_orig[0], d_end[0], null, d_end[0], d_w1[0], null, d_end[0], d_w2[0], null, d_end[0], d_w3[0], null, d_end[0], d_w4[0]],
+                    y: [d_orig[1], d_end[1], null, d_end[1], d_w1[1], null, d_end[1], d_w2[1], null, d_end[1], d_w3[1], null, d_end[1], d_w4[1]],
+                    z: [d_orig[2], d_end[2], null, d_end[2], d_w1[2], null, d_end[2], d_w2[2], null, d_end[2], d_w3[2], null, d_end[2], d_w4[2]],
+                    mode: 'lines', type: 'scatter3d',
+                    line: { color: color, width: width },
+                    name: name || '',
+                    showlegend: !!name,
+                    hoverinfo: 'none'
+                },
+                d_end: d_end
+            };
+        }
+
+        const ARROW_LEN_VISUAL = 0.045;
+        const ARROW_WIDTH_VISUAL = 0.018;
+
+        let plotData = [];
+        function addTrace(t) { if (t && typeof t === 'object') plotData.push(t); }
+
+        // --- メインの座標軸の線（原点を貫く太線） ---
+        addTrace({ x: [view_x_min, view_x_max], y: [cross_y, cross_y], z: [cross_z, cross_z], mode: 'lines', type: 'scatter3d', line: { color: '#333', width: 2 }, hoverinfo: 'none', showlegend: false });
+        addTrace({ x: [cross_x, cross_x], y: [view_y_min, view_y_max], z: [cross_z, cross_z], mode: 'lines', type: 'scatter3d', line: { color: '#333', width: 2 }, hoverinfo: 'none', showlegend: false });
+        addTrace({ x: [cross_x, cross_x], y: [cross_y, cross_y], z: [view_z_min, view_z_max], mode: 'lines', type: 'scatter3d', line: { color: '#333', width: 2 }, hoverinfo: 'none', showlegend: false });
+
+        // --- 独立した x, y, z 軸インジケーター ---
+        let indep_axes_origin = [
+            view_x_max - span_x * 0.12,
+            view_y_max - span_y * 0.12,
+            view_z_max - span_z * 0.12
+        ];
+        
+        // 矢の部分（ヘッド）をさらに小さく調整
+        let comp_head_len = ARROW_LEN_VISUAL * 0.3; 
+        let comp_head_wid = ARROW_WIDTH_VISUAL * 0.3;
+
+        let arr_x = getArrowTrace(indep_axes_origin, [1, 0, 0], span_x * 0.08 * visual_scale_x, comp_head_len, comp_head_wid, '#333', 3, 'x軸');
+        if (arr_x) {
+            addTrace(arr_x.trace);
+            addTrace({ x: [arr_x.d_end[0]], y: [arr_x.d_end[1]], z: [arr_x.d_end[2]], mode: 'text', type: 'scatter3d', text: ['x'], textfont: { size: 14, color: '#333' }, textposition: 'middle right', showlegend: false });
+        }
+
+        let arr_y = getArrowTrace(indep_axes_origin, [0, 1, 0], span_y * 0.08 * visual_scale_y, comp_head_len, comp_head_wid, '#333', 3, 'y軸');
+        if (arr_y) {
+            addTrace(arr_y.trace);
+            addTrace({ x: [arr_y.d_end[0]], y: [arr_y.d_end[1]], z: [arr_y.d_end[2]], mode: 'text', type: 'scatter3d', text: ['y'], textfont: { size: 14, color: '#333' }, textposition: 'top center', showlegend: false });
+        }
+
+        let arr_z = getArrowTrace(indep_axes_origin, [0, 0, 1], span_z * 0.08 * visual_scale_z, comp_head_len, comp_head_wid, '#333', 3, 'z軸');
+        if (arr_z) {
+            addTrace(arr_z.trace);
+            addTrace({ x: [arr_z.d_end[0]], y: [arr_z.d_end[1]], z: [arr_z.d_end[2]], mode: 'text', type: 'scatter3d', text: ['z'], textfont: { size: 14, color: '#333' }, textposition: 'top center', showlegend: false });
+        }
+
+
+        // --- 電場(E)・磁場(B)・E×B ベクトル ---
+        let common_field_origin = [
+            cross_x + span_x * 0.25,
+            view_y_min * 0.6,       // 手前側（Y軸負の領域）
+            cross_z + span_z * 0.25
+        ];
+        let field_vis_len = 0.22;
+
+        let E_mag = norm(E);
+        if (E_mag > 0) {
+            let arr_E = getArrowTrace(common_field_origin, E, field_vis_len, ARROW_LEN_VISUAL, ARROW_WIDTH_VISUAL, '#ff7f0e', 5, '電場 E');
+            if (arr_E) {
+                addTrace(arr_E.trace);
+                addTrace({
+                    x: [arr_E.d_end[0]], y: [arr_E.d_end[1]], z: [arr_E.d_end[2]],
+                    mode: 'text', type: 'scatter3d', text: ['E'], 
+                    textfont: { size: 20, color: '#ff7f0e' }, textposition: 'top center', showlegend: false
+                });
+            }
+        }
+
+        let B_mag = norm(B);
+        if (B_mag > 0) {
+            let arr_B = getArrowTrace(common_field_origin, B, field_vis_len, ARROW_LEN_VISUAL, ARROW_WIDTH_VISUAL, '#9467bd', 5, '磁場 B');
+            if (arr_B) {
+                addTrace(arr_B.trace);
+                addTrace({
+                    x: [arr_B.d_end[0]], y: [arr_B.d_end[1]], z: [arr_B.d_end[2]],
+                    mode: 'text', type: 'scatter3d', text: ['B'], 
+                    textfont: { size: 20, color: '#9467bd' }, textposition: 'top center', showlegend: false
+                });
+            }
+        }
+
+        let ExB = crossProduct(E, B);
+        if (norm(ExB) > 0) {
+            let arr_ExB = getArrowTrace(common_field_origin, ExB, field_vis_len, ARROW_LEN_VISUAL, ARROW_WIDTH_VISUAL, '#17becf', 5, 'E×B');
+            if (arr_ExB) {
+                addTrace(arr_ExB.trace);
+                addTrace({
+                    x: [arr_ExB.d_end[0]], y: [arr_ExB.d_end[1]], z: [arr_ExB.d_end[2]],
+                    mode: 'text', type: 'scatter3d', text: ['E×B'], 
+                    textfont: { size: 16, color: '#17becf' }, textposition: 'top center', showlegend: false
+                });
+            }
+        }
+
+        // --- 目盛線・ラベル・スタート/ゴール地点 ---
+        addTrace({ x: t_lines_x, y: t_lines_y, z: t_lines_z, mode: 'lines', type: 'scatter3d', line: { color: '#111', width: 3 }, hoverinfo: 'none', showlegend: false });
+
+        addTrace({ x: t_pos_x, y: Array(t_pos_x.length).fill(cross_y - tick_size_x_on_y * 2.5), z: Array(t_pos_x.length).fill(cross_z), mode: 'text', type: 'scatter3d', text: t_text_x, textfont: { size: 11, color: '#111' }, textposition: 'top center', hoverinfo: 'none', showlegend: false });
+        addTrace({ x: Array(t_pos_y.length).fill(cross_x - tick_size_y_on_x * 2.5), y: t_pos_y, z: Array(t_pos_y.length).fill(cross_z), mode: 'text', type: 'scatter3d', text: t_text_y, textfont: { size: 11, color: '#111' }, textposition: 'top center', hoverinfo: 'none', showlegend: false });
+        addTrace({ x: Array(t_pos_z.length).fill(cross_x - tick_size_z_on_x * 2.5), y: Array(t_pos_z.length).fill(cross_y), z: t_pos_z, mode: 'text', type: 'scatter3d', text: t_text_z, textfont: { size: 11, color: '#111' }, textposition: 'top center', hoverinfo: 'none', showlegend: false });
+
+        addTrace({ x: [x_disp[0]], y: [y_disp[0]], z: [z_disp[0]], mode: 'markers', type: 'scatter3d', marker: { color: 'red', size: 5 }, name: 'スタート地点' });
+        addTrace({ x: [x_disp[x_disp.length-1]], y: [y_disp[y_disp.length-1]], z: [z_disp[z_disp.length-1]], mode: 'markers', type: 'scatter3d', marker: { color: 'green', size: 5 }, name: 'ゴール地点' });
+
+        // --- アニメーション連動用の「軌跡（動的）」と「現在位置（丸・小）」 ---
+        addTrace({
+            x: [x_disp[0]], y: [y_disp[0]], z: [z_disp[0]],
+            mode: 'lines', type: 'scatter3d',
+            line: { color: '#1f77b4', width: 4 },
+            name: '軌跡'
+        });
+        let pathTraceIndex = plotData.length - 1;
+
+        addTrace({
+            x: [x_disp[0]], y: [y_disp[0]], z: [z_disp[0]],
+            mode: 'markers', type: 'scatter3d',
+            marker: { color: '#d62728', size: 4, symbol: 'circle' },
+            name: '現在位置'
+        });
+        let currentTraceIndex = plotData.length - 1;
+
+        let no_box_style = { showbackground: false, showgrid: true, gridcolor: 'rgba(180, 180, 180, 0.5)', griddash: 'dot', gridwidth: 1.5, showline: false, zeroline: false, showticklabels: false, tickmode: 'linear', title: { text: '' } };
+
+        let scene_config = {
+            xaxis: Object.assign({ dtick: step_x, tick0: cross_x }, no_box_style),
+            yaxis: Object.assign({ dtick: step_y, tick0: cross_y }, no_box_style),
+            zaxis: Object.assign({ dtick: step_z, tick0: cross_z }, no_box_style),
+            aspectmode: aspectmode_val,
+            aspectratio: aspectratio_val,
+            camera: { eye: { x: 2.0, y: 2.0, z: 1.5 }, up: { x: 0, y: 0, z: 1 } }
+        };
+        scene_config.xaxis.range = [view_x_min, view_x_max];
+        scene_config.yaxis.range = [view_y_min, view_y_max];
+        scene_config.zaxis.range = [view_z_min, view_z_max];
+
+        // --- フレーム（アニメーション）生成 ---
+        let frameDuration = parseInt(document.getElementById('frameDuration').value) || 30;
+        let totalPoints = x_disp.length;
+        let maxFrames = 200;
+        let frameStep = Math.max(1, Math.ceil(totalPoints / maxFrames));
+        let frames = [];
+        
+        for (let i = 0; i < totalPoints; i += frameStep) {
+            let sub_x = x_disp.slice(0, i + 1);
+            let sub_y = y_disp.slice(0, i + 1);
+            let sub_z = z_disp.slice(0, i + 1);
+            frames.push({
+                name: String(i),
+                data: [
+                    { x: sub_x, y: sub_y, z: sub_z },
+                    { x: [x_disp[i]], y: [y_disp[i]], z: [z_disp[i]] }
+                ],
+                traces: [pathTraceIndex, currentTraceIndex]
+            });
+        }
+        let last = totalPoints - 1;
+        if (frames.length === 0 || parseInt(frames[frames.length - 1].name) !== last) {
+            frames.push({
+                name: String(last),
+                data: [
+                    { x: x_disp, y: y_disp, z: z_disp },
+                    { x: [x_disp[last]], y: [y_disp[last]], z: [z_disp[last]] }
+                ],
+                traces: [pathTraceIndex, currentTraceIndex]
+            });
+        }
+
+        let layout = {
+            margin: { l: 0, r: 0, b: 90, t: 40 },
+            title: { text: frameMode === 'drift' ? '（ドリフト追従系で表示中）' : '', font: { size: 13, color: '#888' } },
+            scene: scene_config,
+            legend: { x: 0.8, y: 0.9 },
+            updatemenus: [{
+                type: 'buttons', direction: 'left', showactive: false,
+                x: 0.05, y: -0.05, xanchor: 'left', yanchor: 'top',
+                buttons: [
+                    { label: '再生 ▶', method: 'animate', args: [null, { fromcurrent: true, frame: { duration: frameDuration, redraw: true }, transition: { duration: 0 } }] },
+                    { label: '一時停止 ❚❚', method: 'animate', args: [[null], { mode: 'immediate', frame: { duration: 0, redraw: false }, transition: { duration: 0 } }] },
+                    { label: '先頭に戻す ⏮', method: 'animate', args: [[frames[0].name], { mode: 'immediate', frame: { duration: 0, redraw: true }, transition: { duration: 0 } }] }
+                ]
+            }],
+            sliders: [{
+                active: 0, x: 0.05, y: -0.1, len: 0.9, pad: { t: 10 },
+                currentvalue: { prefix: '時刻: ', suffix: ' s', font: { size: 12 } },
+                steps: frames.map(f => ({ label: (parseInt(f.name) * dt).toFixed(2), method: 'animate', args: [[f.name], { mode: 'immediate', frame: { duration: 0, redraw: true }, transition: { duration: 0 } }] }))
+            }]
+        };
+
+        Plotly.newPlot('plot', plotData, layout).then(function () {
+            Plotly.addFrames('plot', frames);
+            
+            // 修正: autoPlay が true (ボタン押下時) の場合のみアニメーションを実行
+            if (autoPlay) {
+                Plotly.animate('plot', null, {
+                    fromcurrent: true,
+                    frame: { duration: frameDuration, redraw: true },
+                    transition: { duration: 0 }
+                });
+            }
+        }).catch(function(err) {
+            console.error("Plotly描画エラー:", err);
+        });
+
+    } catch (e) {
+        console.error("シミュレーションエラー:", e);
+    }
+}
+
+// 初期読み込み時は引数に false を渡して自動再生させない
+window.onload = () => runSimulation(false);
+</script>
+</body>
+</html>
